@@ -1,42 +1,53 @@
+using Inventory.Api.Data;
+using Inventory.Api.Models;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+builder.Services.AddDbContext<AppDbContext>(opt =>
+    opt.UseSqlServer(builder.Configuration.GetConnectionString("Default")));
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
-var summaries = new[]
+// CRUD mínimo de produtos
+app.MapPost("/products", async (Product p, AppDbContext db) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    db.Products.Add(p);
+    await db.SaveChangesAsync();
+    return Results.Created($"/products/{p.Id}", p);
+});
 
-app.MapGet("/weatherforecast", () =>
+app.MapGet("/products", async (AppDbContext db) =>
+    await db.Products.AsNoTracking().ToListAsync());
+
+app.MapGet("/products/{id:guid}", async (Guid id, AppDbContext db) =>
+    await db.Products.FindAsync(id) is { } p ? Results.Ok(p) : Results.NotFound());
+
+app.MapPut("/products/{id:guid}", async (Guid id, Product input, AppDbContext db) =>
 {
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi();
+    var p = await db.Products.FindAsync(id);
+    if (p is null) return Results.NotFound();
+    p.Name = input.Name;
+    p.Description = input.Description;
+    p.Price = input.Price;
+    p.StockQuantity = input.StockQuantity;
+    await db.SaveChangesAsync();
+    return Results.Ok(p);
+});
+
+app.MapDelete("/products/{id:guid}", async (Guid id, AppDbContext db) =>
+{
+    var p = await db.Products.FindAsync(id);
+    if (p is null) return Results.NotFound();
+    db.Remove(p);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
